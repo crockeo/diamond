@@ -1,10 +1,13 @@
+mod database;
+
+use std::path::Path;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
+use crate::database::Database;
+
 #[derive(StructOpt)]
 struct Opt {
-    config_path: Option<PathBuf>,
-
     #[structopt(subcommand)]
     command: Command,
 }
@@ -68,7 +71,10 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn init(opt: &Opt, init_opt: &InitOpt) -> anyhow::Result<()> {
-    todo!()
+    let repo_root = git_repo_root(std::env::current_dir()?).await?;
+    let mut database = Database::new(repo_root.join(".git").join("diamond.sqlite3"))?;
+    database.set_root_branch(&init_opt.root_branch)?;
+    Ok(())
 }
 
 async fn create(opt: &Opt, create_opt: &CreateOpt) -> anyhow::Result<()> {
@@ -85,4 +91,16 @@ async fn submit(opt: &Opt, submit_opt: &SubmitOpt) -> anyhow::Result<()> {
 
 async fn restack(opt: &Opt) -> anyhow::Result<()> {
     todo!()
+}
+
+async fn git_repo_root(cwd: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
+    let cwd = cwd.as_ref();
+    let mut candidate_path = Some(cwd);
+    while let Some(path) = candidate_path {
+        if path.join(".git").is_dir() {
+            return Ok(path.to_owned());
+        }
+        candidate_path = path.parent();
+    }
+    anyhow::bail!("Working directory is not in a Git repo: {cwd:?}");
 }
