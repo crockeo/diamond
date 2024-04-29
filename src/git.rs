@@ -1,4 +1,4 @@
-use std::{path::Path, process::ExitStatus};
+use std::{path::Path, process::{ExitStatus, Stdio}};
 use tokio::process::Command;
 
 pub async fn get_current_branch(git_root: &Path) -> anyhow::Result<String> {
@@ -30,6 +30,8 @@ pub async fn push_branch(git_root: &Path, remote: &str, branch_name: &str) -> an
     let status = Command::new("git")
         .args(["push", "--force-with-lease", remote, &refspec])
         .current_dir(git_root)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .await?;
     check_status(status)?;
