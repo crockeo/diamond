@@ -77,7 +77,10 @@ impl Database {
             )?;
             count > 0
         };
-        anyhow::ensure!(current_branch_exists, "Cannot create branch on top of {current_branch}, which is not tracked.");
+        anyhow::ensure!(
+            current_branch_exists,
+            "Cannot create branch on top of {current_branch}, which is not tracked."
+        );
 
         transaction.execute(
             "
@@ -95,7 +98,34 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_branches_in_stack(&self, current_branch: &str) -> anyhow::Result<Vec<String>> {
-        todo!()
+    pub fn get_branches_in_stack(&mut self, current_branch: &str) -> anyhow::Result<Vec<String>> {
+        let transaction = self.conn.transaction()?;
+        let parent: String = transaction.query_row(
+            "SELECT parent FROM branches WHERE name = ?",
+            (current_branch,),
+            |row| row.get(0),
+        )?;
+        let mut stmt = transaction.prepare(
+            "
+            WITH RECURSIVE
+              stack_branches(name, parent) AS (
+                VALUES(?, ?)
+                UNION
+                SELECT branches.name, branches.parent
+                FROM branches, stack_branches
+                WHERE branches.parent = stack_branches.name
+                   OR branches.name = stack_branches.parent
+              )
+            SELECT name
+            FROM stack_branches
+            WHERE parent IS NOT NULL
+            ",
+        )?;
+        let mut branches: Vec<String> = Vec::new();
+        for row in stmt.query_map((current_branch, parent), |row| row.get(0))? {
+            let row = row?;
+            branches.push(row);
+        }
+        Ok(branches)
     }
 }
