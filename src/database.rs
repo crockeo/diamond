@@ -94,4 +94,8 @@ impl Database {
         transaction.commit()?;
         Ok(())
     }
+
+    pub fn get_branches_in_stack(&self, current_branch: &str) -> anyhow::Result<Vec<String>> {
+        todo!()
+    }
 }

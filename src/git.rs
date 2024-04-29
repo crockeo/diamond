@@ -1,7 +1,7 @@
 use std::{path::Path, process::ExitStatus};
 use tokio::process::Command;
 
-pub async fn current_branch(git_root: &Path) -> anyhow::Result<String> {
+pub async fn get_current_branch(git_root: &Path) -> anyhow::Result<String> {
     let output = Command::new("git")
         .args(["rev-parse", "--symbolic-full-name", "HEAD"])
         .current_dir(git_root)
@@ -18,6 +18,17 @@ pub async fn current_branch(git_root: &Path) -> anyhow::Result<String> {
 pub async fn create_branch(git_root: &Path, branch_name: &str) -> anyhow::Result<()> {
     let status = Command::new("git")
         .args(["checkout", "-b", branch_name])
+        .current_dir(git_root)
+        .status()
+        .await?;
+    check_status(status)?;
+    Ok(())
+}
+
+pub async fn push_branch(git_root: &Path, remote: &str, branch_name: &str) -> anyhow::Result<()> {
+    let refspec = format!("refs/heads/{branch_name}:refs/heads/{branch_name}");
+    let status = Command::new("git")
+        .args(["push", "--force-with-lease", remote, &refspec])
         .current_dir(git_root)
         .status()
         .await?;
