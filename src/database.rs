@@ -66,4 +66,32 @@ impl Database {
         transaction.commit()?;
         Ok(())
     }
+
+    pub fn create_branch(&mut self, current_branch: &str, new_branch: &str) -> anyhow::Result<()> {
+        let transaction = self.conn.transaction()?;
+        let current_branch_exists: bool = {
+            let count: usize = transaction.query_row(
+                "SELECT COUNT(*) FROM branches WHERE name = ?",
+                (current_branch,),
+                |row| row.get(0),
+            )?;
+            count > 0
+        };
+        anyhow::ensure!(current_branch_exists, "Cannot create branch on top of {current_branch}, which is not tracked.");
+
+        transaction.execute(
+            "
+            INSERT INTO BRANCHES (
+                name,
+                parent
+            ) VALUES (
+                ?,
+                ?
+            )
+            ",
+            (new_branch, current_branch),
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
 }

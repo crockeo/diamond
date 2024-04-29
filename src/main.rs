@@ -1,4 +1,5 @@
 mod database;
+mod git;
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -71,13 +72,22 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn init(opt: &Opt, init_opt: &InitOpt) -> anyhow::Result<()> {
-    let repo_root = git_repo_root(std::env::current_dir()?).await?;
+    let repo_root = git_repo_root(std::env::current_dir()?)?;
     let mut database = Database::new(repo_root.join(".git").join("diamond.sqlite3"))?;
     database.set_root_branch(&init_opt.root_branch)?;
     Ok(())
 }
 
 async fn create(opt: &Opt, create_opt: &CreateOpt) -> anyhow::Result<()> {
+    let repo_root = git_repo_root(std::env::current_dir()?)?;
+    let current_branch = git::current_branch(&repo_root).await?;
+    git::create_branch(&repo_root, &create_opt.branch).await?;
+    let mut database = Database::new(repo_root.join(".git").join("diamond.sqlite3"))?;
+    database.create_branch(&current_branch, &create_opt.branch)?;
+    Ok(())
+}
+
+async fn submit(opt: &Opt, submit_opt: &SubmitOpt) -> anyhow::Result<()> {
     todo!()
 }
 
@@ -85,15 +95,11 @@ async fn sync(opt: &Opt) -> anyhow::Result<()> {
     todo!()
 }
 
-async fn submit(opt: &Opt, submit_opt: &SubmitOpt) -> anyhow::Result<()> {
-    todo!()
-}
-
 async fn restack(opt: &Opt) -> anyhow::Result<()> {
     todo!()
 }
 
-async fn git_repo_root(cwd: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
+fn git_repo_root(cwd: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
     let cwd = cwd.as_ref();
     let mut candidate_path = Some(cwd);
     while let Some(path) = candidate_path {
