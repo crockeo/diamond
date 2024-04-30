@@ -2,20 +2,22 @@ mod database;
 mod git;
 mod github;
 
+use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 use structopt::StructOpt;
+use tokio::process::Command;
 
 use crate::database::Database;
 
 #[derive(StructOpt)]
 struct Opt {
     #[structopt(subcommand)]
-    command: Command,
+    command: Mode,
 }
 
 #[derive(StructOpt)]
-enum Command {
+enum Mode {
     /// Initializes a repository to be ready to use with diamond.
     /// Requires that you specify the root branch of that repo,
     /// which is usually `master` or `main`.
@@ -62,11 +64,11 @@ struct SubmitOpt {
 async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
     match &opt.command {
-        Command::Init(ref init_opt) => init(&opt, &init_opt).await,
-        Command::Create(ref create_opt) => create(&opt, &create_opt).await,
-        Command::Sync => sync(&opt).await,
-        Command::Submit => submit(&opt).await,
-        Command::Restack => restack(&opt).await,
+        Mode::Init(ref init_opt) => init(&opt, &init_opt).await,
+        Mode::Create(ref create_opt) => create(&opt, &create_opt).await,
+        Mode::Sync => sync(&opt).await,
+        Mode::Submit => submit(&opt).await,
+        Mode::Restack => restack(&opt).await,
     }?;
     Ok(())
 }
@@ -98,6 +100,16 @@ async fn submit(opt: &Opt) -> anyhow::Result<()> {
     // maybe set this up as part of `init`?
     for branch_in_stack in branches_in_stack {
         git::push_branch(&repo_root, "origin", &branch_in_stack).await?;
+        let title = prompt_pr_title().await?;
+        let body = prompt_pr_description(&repo_root).await?;
+        github::create_pull_request(
+            todo!("organization"),
+            todo!("repo"),
+            todo!("base branch"),
+            &branch_in_stack,
+            &title,
+            &body,
+        ).await?;
     }
 
     todo!()
@@ -125,4 +137,22 @@ fn git_repo_root(cwd: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
 
 fn open_database(repo_root: &Path) -> anyhow::Result<Database> {
     Database::new(repo_root.join(".git").join("diamond.sqlite3"))
+}
+
+async fn prompt_pr_title() -> anyhow::Result<String> {
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    stdin.read_line(&mut line);
+    Ok(line)
+}
+
+async fn prompt_pr_description(repo_root: &Path) -> anyhow::Result<String> {
+    let pull_editmsg_path = repo_root.join(".git").join("PULL_EDITMSG");
+    File::create(&pull_editmsg_path)?;
+    let editor = std::env::var("EDITOR")?;
+    Command::new(editor)
+        .arg(&pull_editmsg_path)
+        .status()
+        .await?;
+    Ok(std::fs::read_to_string(&pull_editmsg_path)?)
 }

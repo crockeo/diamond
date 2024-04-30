@@ -1,4 +1,4 @@
-pub fn create_pull_request(
+pub async fn create_pull_request(
     organization: &str,
     repo: &str,
     base_branch: &str,
