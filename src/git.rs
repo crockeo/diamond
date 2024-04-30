@@ -36,3 +36,16 @@ fn check_status(status: ExitStatus) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+pub async fn is_ancestor_of(
+    git_root: &Path,
+    parent_branch: &str,
+    branch: &str,
+) -> anyhow::Result<bool> {
+    let status = Command::new("git")
+        .args(["merge-base", "--is-ancestor", parent_branch, branch])
+        .current_dir(git_root)
+        .status()
+        .await?;
+    Ok(status.success())
+}

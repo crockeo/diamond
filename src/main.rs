@@ -38,6 +38,11 @@ enum Command {
     /// Restacks the branches on the current stack onto the most recent version of the priamry branch.
     #[structopt()]
     Restack,
+
+    /// Starts tracking the current branch inside of Diamond.
+    /// If no `parent` is provided, assume that the current branch is based on `main`.
+    #[structopt()]
+    Track(TrackOpt),
 }
 
 #[derive(StructOpt)]
@@ -58,6 +63,12 @@ struct SubmitOpt {
     stack: bool,
 }
 
+#[derive(StructOpt)]
+struct TrackOpt {
+    #[structopt(long)]
+    parent: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
@@ -67,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Sync => sync(&opt).await,
         Command::Submit(ref submit_opt) => submit(&opt, &submit_opt).await,
         Command::Restack => restack(&opt).await,
+        Command::Track(ref track_opt) => track(&opt, track_opt).await,
     }?;
     Ok(())
 }
@@ -97,6 +109,21 @@ async fn sync(opt: &Opt) -> anyhow::Result<()> {
 
 async fn restack(opt: &Opt) -> anyhow::Result<()> {
     todo!()
+}
+
+async fn track(opt: &Opt, track_opt: &TrackOpt) -> anyhow::Result<()> {
+    let repo_root = git_repo_root(std::env::current_dir()?)?;
+    let current_branch = git::current_branch(&repo_root).await?;
+    let mut database = Database::new(repo_root.join(".git").join("diamond.sqlite3"))?;
+    let parent = match &track_opt.parent {
+        Some(parent) => parent.clone(),
+        None => database.get_root_branch()?,
+    };
+    if !git::is_ancestor_of(&repo_root, &parent, &current_branch).await? {
+        anyhow::bail!("Cannot track {current_branch} as branching off of {parent}, because {parent} is not its ancestor.");
+    }
+    database.create_branch(&parent, &current_branch)?;
+    Ok(())
 }
 
 fn git_repo_root(cwd: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
