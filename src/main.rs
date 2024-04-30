@@ -111,9 +111,6 @@ async fn submit(opt: &Opt) -> anyhow::Result<()> {
     let current_branch = git::get_current_branch(&repo_root).await?;
     let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
 
-    // TODO: this assumes we're always pushing to the remote "origin,"
-    // but the repo may have a different remote name.
-    // maybe set this up as part of `init`?
     let repo = git::parse_remote(&repo_root, &database.get_remote()?).await?;
     for branch_in_stack in branches_in_stack {
         git::push_branch(&repo_root, "origin", &branch_in_stack).await?;
