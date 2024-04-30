@@ -6,5 +6,6 @@ pub async fn create_pull_request(
     title: &str,
     body: &str,
 ) -> anyhow::Result<()> {
-    todo!()
+    println!("{organization}, {repo}, {base_branch}, {branch}, {title}, {body}");
+    Ok(())
 }
