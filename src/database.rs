@@ -31,6 +31,14 @@ impl Database {
         Ok(())
     }
 
+    pub fn get_root_branch(&self) -> anyhow::Result<String> {
+        Ok(self.conn.query_row(
+            "SELECT name FROM branches WHERE parent IS NULL",
+            (),
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn set_root_branch(&mut self, root_branch: &str) -> anyhow::Result<()> {
         let transaction = self.conn.transaction()?;
         let existing_root_branch: Option<String> = {
@@ -77,7 +85,10 @@ impl Database {
             )?;
             count > 0
         };
-        anyhow::ensure!(current_branch_exists, "Cannot create branch on top of {current_branch}, which is not tracked.");
+        anyhow::ensure!(
+            current_branch_exists,
+            "Cannot create branch on top of {current_branch}, which is not tracked."
+        );
 
         transaction.execute(
             "
