@@ -114,12 +114,13 @@ async fn submit(opt: &Opt) -> anyhow::Result<()> {
     let repo = git::parse_remote(&repo_root, &database.get_remote()?).await?;
     for branch_in_stack in branches_in_stack {
         git::push_branch(&repo_root, "origin", &branch_in_stack).await?;
+        let base_branch = database.get_parent(&current_branch)?;
         let title = prompt_pr_title().await?;
         let body = prompt_pr_description(&repo_root).await?;
         github::create_pull_request(
             &repo.organization,
             &repo.repo,
-            todo!("base branch"),
+            &base_branch,
             &branch_in_stack,
             &title,
             &body,
