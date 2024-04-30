@@ -1,5 +1,6 @@
 mod database;
 mod git;
+mod github;
 
 use std::path::Path;
 use std::path::PathBuf;

@@ -1,4 +1,7 @@
-use std::{path::Path, process::{ExitStatus, Stdio}};
+use std::{
+    path::Path,
+    process::{ExitStatus, Stdio},
+};
 use tokio::process::Command;
 
 pub async fn get_current_branch(git_root: &Path) -> anyhow::Result<String> {
@@ -25,7 +28,14 @@ pub async fn create_branch(git_root: &Path, branch_name: &str) -> anyhow::Result
     Ok(())
 }
 
-pub async fn push_branch(git_root: &Path, remote: &str, branch_name: &str) -> anyhow::Result<()> {
+pub async fn push_branch(
+    git_root: impl AsRef<Path>,
+    remote: impl AsRef<str>,
+    branch_name: impl AsRef<str>,
+) -> anyhow::Result<()> {
+    let (git_root, remote, branch_name) =
+        (git_root.as_ref(), remote.as_ref(), branch_name.as_ref());
+
     let refspec = format!("refs/heads/{branch_name}:refs/heads/{branch_name}");
     let status = Command::new("git")
         .args(["push", "--force-with-lease", remote, &refspec])
