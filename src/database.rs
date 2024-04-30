@@ -21,6 +21,16 @@ impl Database {
     fn migrate(&self) -> anyhow::Result<()> {
         self.conn.execute(
             "
+            CREATE TABLE IF NOT EXISTS repo_info (
+                id INT PRIMARY KEY,
+                remote TEXT
+            )
+            ",
+            (),
+        )?;
+
+        self.conn.execute(
+            "
             CREATE TABLE IF NOT EXISTS branches (
                 name TEXT PRIMARY KEY,
                 parent TEXT
@@ -29,6 +39,30 @@ impl Database {
             (),
         )?;
         Ok(())
+    }
+
+    pub fn set_remote(&mut self, remote: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "
+            INSERT OR REPLACE INTO repo_info (
+                id,
+                remote
+            ) VALUES (
+                1,
+                ?
+            )
+            ",
+            (remote,),
+        )?;
+        Ok(())
+    }
+
+    pub fn get_remote(&self) -> anyhow::Result<String> {
+        Ok(self
+            .conn
+            .query_row("SELECT remote FROM repo_info WHERE id = 1", (), |row| {
+                row.get(0)
+            })?)
     }
 
     pub fn set_root_branch(&mut self, root_branch: &str) -> anyhow::Result<()> {
@@ -65,6 +99,14 @@ impl Database {
         transaction.execute("INSERT INTO branches ( name ) VALUES ( ? )", (root_branch,))?;
         transaction.commit()?;
         Ok(())
+    }
+
+    pub fn get_root_branch(&self) -> anyhow::Result<String> {
+        Ok(self.conn.query_row(
+            "SELECT name FROM branches WHERE parent IS NULL",
+            (),
+            |row| row.get(0),
+        )?)
     }
 
     pub fn create_branch(&mut self, current_branch: &str, new_branch: &str) -> anyhow::Result<()> {

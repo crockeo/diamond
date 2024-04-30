@@ -40,10 +40,18 @@ enum Mode {
     /// Restacks the branches on the current stack onto the most recent version of the priamry branch.
     #[structopt()]
     Restack,
+
+    /// Starts tracking the current branch inside of Diamond.
+    /// If no `parent` is provided, assume that the current branch is based on `main`.
+    #[structopt()]
+    Track(TrackOpt),
 }
 
 #[derive(StructOpt)]
 struct InitOpt {
+    #[structopt(long)]
+    remote: String,
+
     #[structopt(long)]
     root_branch: String,
 }
@@ -60,6 +68,12 @@ struct SubmitOpt {
     stack: bool,
 }
 
+#[derive(StructOpt)]
+struct TrackOpt {
+    #[structopt(long)]
+    parent: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
@@ -69,6 +83,7 @@ async fn main() -> anyhow::Result<()> {
         Mode::Sync => sync(&opt).await,
         Mode::Submit => submit(&opt).await,
         Mode::Restack => restack(&opt).await,
+        Mode::Track(ref track_opt) => track(&opt, track_opt).await,
     }?;
     Ok(())
 }
@@ -76,6 +91,7 @@ async fn main() -> anyhow::Result<()> {
 async fn init(opt: &Opt, init_opt: &InitOpt) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
     let mut database = open_database(&repo_root)?;
+    database.set_remote(&init_opt.remote)?;
     database.set_root_branch(&init_opt.root_branch)?;
     Ok(())
 }
@@ -98,18 +114,20 @@ async fn submit(opt: &Opt) -> anyhow::Result<()> {
     // TODO: this assumes we're always pushing to the remote "origin,"
     // but the repo may have a different remote name.
     // maybe set this up as part of `init`?
+    let repo = git::parse_remote(&repo_root, &database.get_remote()?).await?;
     for branch_in_stack in branches_in_stack {
         git::push_branch(&repo_root, "origin", &branch_in_stack).await?;
         let title = prompt_pr_title().await?;
         let body = prompt_pr_description(&repo_root).await?;
         github::create_pull_request(
-            todo!("organization"),
-            todo!("repo"),
+            &repo.organization,
+            &repo.repo,
             todo!("base branch"),
             &branch_in_stack,
             &title,
             &body,
-        ).await?;
+        )
+        .await?;
     }
 
     todo!()
@@ -121,6 +139,21 @@ async fn sync(opt: &Opt) -> anyhow::Result<()> {
 
 async fn restack(opt: &Opt) -> anyhow::Result<()> {
     todo!()
+}
+
+async fn track(opt: &Opt, track_opt: &TrackOpt) -> anyhow::Result<()> {
+    let repo_root = git_repo_root(std::env::current_dir()?)?;
+    let current_branch = git::get_current_branch(&repo_root).await?;
+    let mut database = Database::new(repo_root.join(".git").join("diamond.sqlite3"))?;
+    let parent = match &track_opt.parent {
+        Some(parent) => parent.clone(),
+        None => database.get_root_branch()?,
+    };
+    if !git::is_ancestor_of(&repo_root, &parent, &current_branch).await? {
+        anyhow::bail!("Cannot track {current_branch} as branching off of {parent}, because {parent} is not its ancestor.");
+    }
+    database.create_branch(&parent, &current_branch)?;
+    Ok(())
 }
 
 fn git_repo_root(cwd: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
@@ -142,7 +175,7 @@ fn open_database(repo_root: &Path) -> anyhow::Result<Database> {
 async fn prompt_pr_title() -> anyhow::Result<String> {
     let stdin = std::io::stdin();
     let mut line = String::new();
-    stdin.read_line(&mut line);
+    stdin.read_line(&mut line)?;
     Ok(line)
 }
 
