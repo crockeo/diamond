@@ -27,18 +27,20 @@ impl BranchGuard {
 
 impl Drop for BranchGuard {
     fn drop(&mut self) {
-        self.release_impl()
-            .expect("Failed to move back to original Git branch during BranchGuard drop.");
+        if self.original_branch.is_some() {
+            self.release_impl()
+                .expect("Failed to move back to original Git branch during BranchGuard drop.");
+        }
     }
 }
 
 pub fn using_branch(git_root: &Path, branch: &str) -> anyhow::Result<BranchGuard> {
+    checkout(git_root, branch)?;
     let _original_branch = get_current_branch(git_root)?;
     let guard = BranchGuard {
         git_root: git_root.to_owned(),
         original_branch: Some(branch.to_owned()),
     };
-    checkout(git_root, branch)?;
     Ok(guard)
 }
 
