@@ -138,6 +138,7 @@ fn sync(_opt: &Opt) -> anyhow::Result<()> {
     let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
     for branch in branches_in_stack {
         println!("Restacking `{}` onto `{}`...", branch.name, branch.parent);
+        git::pull(&repo_root, &remote, &branch.name)?;
         git::rebase(&repo_root, &branch.parent, &branch.name)?;
     }
 
