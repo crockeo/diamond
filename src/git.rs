@@ -75,12 +75,35 @@ pub async fn is_ancestor_of(
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Repo {
+pub struct Remote {
     pub organization: String,
     pub repo: String,
 }
 
-pub async fn parse_remote(git_root: &Path, remote: &str) -> anyhow::Result<Repo> {
+impl Remote {
+    fn parse(remote_url: &str) -> anyhow::Result<Self> {
+        // TODO: make this support other, non-github providers
+        let re = Regex::new(
+            "(git@github.com:|https://github.com/)(?P<organization>[^/]+)/(?P<repo>[^/.]+)(\\.git)?",
+        )?;
+        let Some(captures) = re.captures(&remote_url) else {
+            anyhow::bail!("Malformed remote URL: {remote_url}");
+        };
+        Ok(Remote {
+            organization: captures["organization"].trim().to_owned(),
+            repo: captures["repo"].trim().to_owned(),
+        })
+    }
+
+    pub fn new_pr_url(&self, base_branch: &str, branch_to_merge: &str) -> String {
+        format!(
+            "https://github.com/{}/{}/compare/{base_branch}...{branch_to_merge}?expand=1",
+            self.organization, self.repo,
+        )
+    }
+}
+
+pub async fn parse_remote(git_root: &Path, remote: &str) -> anyhow::Result<Remote> {
     let output = Command::new("git")
         .args(["remote", "get-url", remote])
         .current_dir(git_root)
@@ -88,20 +111,7 @@ pub async fn parse_remote(git_root: &Path, remote: &str) -> anyhow::Result<Repo>
         .await?;
 
     let url = String::from_utf8(output.stdout)?;
-    parse_remote_url(&url)
-}
-
-fn parse_remote_url(remote_url: &str) -> anyhow::Result<Repo> {
-    let re = Regex::new(
-        "(git@github.com:|https://github.com/)(?P<organization>[^/]+)/(?P<repo>[^/.]+)(\\.git)?",
-    )?;
-    let Some(captures) = re.captures(&remote_url) else {
-        anyhow::bail!("Malformed remote URL: {remote_url}");
-    };
-    Ok(Repo {
-        organization: captures["organization"].to_owned(),
-        repo: captures["repo"].to_owned(),
-    })
+    Remote::parse(&url)
 }
 
 #[cfg(test)]
@@ -110,10 +120,10 @@ mod tests {
 
     #[test]
     fn test_parse_remote_url_ssh() -> anyhow::Result<()> {
-        let repo = parse_remote_url("git@github.com:crockeo/diamond")?;
+        let remote = Remote::parse("git@github.com:crockeo/diamond")?;
         assert_eq!(
             repo,
-            Repo {
+            Remote {
                 organization: "crockeo".to_owned(),
                 repo: "diamond".to_owned(),
             },
@@ -123,10 +133,10 @@ mod tests {
 
     #[test]
     fn test_parse_remote_url_https() -> anyhow::Result<()> {
-        let repo = parse_remote_url("https://github.com/crockeo/diamond")?;
+        let remote = Remote::parse("https://github.com/crockeo/diamond")?;
         assert_eq!(
             repo,
-            Repo {
+            Remote {
                 organization: "crockeo".to_owned(),
                 repo: "diamond".to_owned(),
             },

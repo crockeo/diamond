@@ -111,24 +111,14 @@ async fn submit(opt: &Opt) -> anyhow::Result<()> {
     let current_branch = git::get_current_branch(&repo_root).await?;
     let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
 
-    let repo = git::parse_remote(&repo_root, &database.get_remote()?).await?;
+    let remote = git::parse_remote(&repo_root, &database.get_remote()?).await?;
     for branch_in_stack in branches_in_stack {
         git::push_branch(&repo_root, "origin", &branch_in_stack).await?;
         let base_branch = database.get_parent(&current_branch)?;
-        let title = prompt_pr_title().await?;
-        let body = prompt_pr_description(&repo_root).await?;
-        github::create_pull_request(
-            &repo.organization,
-            &repo.repo,
-            &base_branch,
-            &branch_in_stack,
-            &title,
-            &body,
-        )
-        .await?;
+        println!("[{branch_in_stack}] -> {}", remote.new_pr_url(&base_branch, &branch_in_stack));
     }
 
-    todo!()
+    Ok(())
 }
 
 async fn sync(opt: &Opt) -> anyhow::Result<()> {
@@ -168,22 +158,4 @@ fn git_repo_root(cwd: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
 
 fn open_database(repo_root: &Path) -> anyhow::Result<Database> {
     Database::new(repo_root.join(".git").join("diamond.sqlite3"))
-}
-
-async fn prompt_pr_title() -> anyhow::Result<String> {
-    let stdin = std::io::stdin();
-    let mut line = String::new();
-    stdin.read_line(&mut line)?;
-    Ok(line)
-}
-
-async fn prompt_pr_description(repo_root: &Path) -> anyhow::Result<String> {
-    let pull_editmsg_path = repo_root.join(".git").join("PULL_EDITMSG");
-    File::create(&pull_editmsg_path)?;
-    let editor = std::env::var("EDITOR")?;
-    Command::new(editor)
-        .arg(&pull_editmsg_path)
-        .status()
-        .await?;
-    Ok(std::fs::read_to_string(&pull_editmsg_path)?)
 }
