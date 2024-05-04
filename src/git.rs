@@ -88,7 +88,6 @@ pub fn push_branch(
         .args(["push", "--force-with-lease", remote, &refspec])
         .current_dir(git_root)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
         .status()?;
     check_status(status)?;
     Ok(())
