@@ -216,10 +216,11 @@ impl Database {
                 SELECT branches.name, branches.parent, stack_branches.level - 1
                 FROM branches, stack_branches
                 WHERE stack_branches.parent = branches.name
+                  AND branches.parent IS NOT NULL
               )
             SELECT DISTINCT name, parent
             FROM stack_branches
-            WHERE name <> parent AND parent IS NOT NULL
+            WHERE name <> parent
             ORDER BY level ASC
             ",
         )?;
@@ -252,6 +253,7 @@ mod tests {
         let mut database = Database::new(temp_dir.path().join("database.sqlite3"))?;
 
         database.set_root_branch("main")?;
+        database.create_branch("main", "ch/unrelated-branch")?;
         database.create_branch("main", "ch/branch-1")?;
         database.create_branch("ch/branch-1", "ch/branch-2")?;
         database.create_branch("ch/branch-2", "ch/branch-3")?;
