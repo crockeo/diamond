@@ -1,5 +1,27 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, Row, OptionalExtension};
 use std::path::Path;
+
+// TODO: WOW is this brittle!!!
+// if i add anything earlier into the migration list (why would I?)
+// it messes up the revision ordering
+const MIGRATIONS: &[&'static str] = &[
+    "
+    CREATE TABLE IF NOT EXISTS repo_info (
+        id INT PRIMARY KEY,
+        remote TEXT
+    )
+    ",
+    "
+    CREATE TABLE IF NOT EXISTS branches (
+        name TEXT PRIMARY KEY,
+        parent TEXT
+    )
+    ",
+    "
+    ALTER TABLE branches
+    ADD submitted BOOL DEFAULT FALSE NOT NULL
+    ",
+];
 
 pub struct Database {
     conn: Connection,
@@ -11,33 +33,49 @@ impl Database {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let db = Self {
+        let mut db = Self {
             conn: Connection::open(path)?,
         };
         db.migrate()?;
         Ok(db)
     }
 
-    fn migrate(&self) -> anyhow::Result<()> {
+    fn migrate(&mut self) -> anyhow::Result<()> {
         self.conn.execute(
             "
-            CREATE TABLE IF NOT EXISTS repo_info (
+            CREATE TABLE IF NOT EXISTS migration (
                 id INT PRIMARY KEY,
-                remote TEXT
+                current_revision INT
             )
             ",
             (),
         )?;
+        for (revision, migration) in MIGRATIONS.iter().enumerate() {
+            let transaction = self.conn.transaction()?;
+            let current_revision: Option<usize> = transaction.query_row(
+                "SELECT current_revision FROM migration WHERE id = 1",
+                (),
+                |row| row.get(0),
+            ).optional()?;
+            if let Some(current_revision) = current_revision {
+                if current_revision >= revision {
+                    continue;
+                }
+            }
 
-        self.conn.execute(
-            "
-            CREATE TABLE IF NOT EXISTS branches (
-                name TEXT PRIMARY KEY,
-                parent TEXT
-            )
-            ",
-            (),
-        )?;
+            transaction.execute(migration, ())?;
+            transaction.execute(
+                "
+                INSERT OR REPLACE INTO migration (
+                    id,
+                    current_revision
+                )
+                VALUES ( 1, ? )
+                ",
+                (revision,),
+            )?;
+            transaction.commit()?;
+        }
         Ok(())
     }
 
