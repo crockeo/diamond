@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Row, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension};
 use std::path::Path;
 
 // TODO: WOW is this brittle!!!
@@ -52,11 +52,13 @@ impl Database {
         )?;
         for (revision, migration) in MIGRATIONS.iter().enumerate() {
             let transaction = self.conn.transaction()?;
-            let current_revision: Option<usize> = transaction.query_row(
-                "SELECT current_revision FROM migration WHERE id = 1",
-                (),
-                |row| row.get(0),
-            ).optional()?;
+            let current_revision: Option<usize> = transaction
+                .query_row(
+                    "SELECT current_revision FROM migration WHERE id = 1",
+                    (),
+                    |row| row.get(0),
+                )
+                .optional()?;
             if let Some(current_revision) = current_revision {
                 if current_revision >= revision {
                     continue;
@@ -95,12 +97,12 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_remote(&self) -> anyhow::Result<String> {
+    pub fn get_remote(&self) -> anyhow::Result<Option<String>> {
         Ok(self
             .conn
             .query_row("SELECT remote FROM repo_info WHERE id = 1", (), |row| {
                 row.get(0)
-            })?)
+            }).optional()?)
     }
 
     pub fn set_root_branch(&mut self, root_branch: &str) -> anyhow::Result<()> {
@@ -148,11 +150,14 @@ impl Database {
     }
 
     pub fn get_parent(&self, branch: &str) -> anyhow::Result<Option<String>> {
-        Ok(self.conn.query_row(
-            "SELECT parent FROM branches WHERE name = ?",
-            (branch,),
-            |row| row.get(0),
-        ).optional()?)
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT parent FROM branches WHERE name = ?",
+                (branch,),
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     pub fn create_branch(&mut self, current_branch: &str, new_branch: &str) -> anyhow::Result<()> {
@@ -188,11 +193,6 @@ impl Database {
 
     pub fn get_branches_in_stack(&mut self, current_branch: &str) -> anyhow::Result<Vec<String>> {
         let transaction = self.conn.transaction()?;
-        let parent: String = transaction.query_row(
-            "SELECT parent FROM branches WHERE name = ?",
-            (current_branch,),
-            |row| row.get(0),
-        )?;
         let mut stmt = transaction.prepare(
             "
             WITH RECURSIVE
@@ -204,13 +204,13 @@ impl Database {
                 WHERE branches.parent = stack_branches.name
                    OR branches.name = stack_branches.parent
               )
-            SELECT name
+            SELECT DISTINCT name
             FROM stack_branches
             WHERE parent IS NOT NULL
             ",
         )?;
         let mut branches: Vec<String> = Vec::new();
-        for row in stmt.query_map((current_branch, parent), |row| row.get(0))? {
+        for row in stmt.query_map((current_branch, current_branch), |row| row.get(0))? {
             let row = row?;
             branches.push(row);
         }

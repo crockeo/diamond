@@ -2,11 +2,9 @@ mod database;
 mod git;
 mod github;
 
-use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use tokio::process::Command;
 
 use crate::database::Database;
 
@@ -114,11 +112,17 @@ async fn submit(opt: &Opt) -> anyhow::Result<()> {
     let current_branch = git::get_current_branch(&repo_root).await?;
     let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
 
-    let remote = git::parse_remote(&repo_root, &database.get_remote()?).await?;
+    let Some(remote_name) = database.get_remote()? else {
+        eprintln!("{RED}Cannot find remote. Configure repo with `dmd init`.{RESET}");
+        return Ok(());
+    };
+
+
+    let remote = git::parse_remote(&repo_root, &remote_name).await?;
     for branch_in_stack in branches_in_stack {
         let base_branch = database.get_parent(&current_branch)?;
         let Some(base_branch) = base_branch else {
-            eprintln!("{RED}Cannot find parent of `{branch_in_stack}`. Assuming it is primary branch and not pushing.{RESET}");
+            eprintln!("{RED}Cannot find parent of `{branch_in_stack}`. Is it tracked?{RESET}");
             continue;
         };
 
