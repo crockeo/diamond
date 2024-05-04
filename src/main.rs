@@ -10,6 +10,9 @@ use tokio::process::Command;
 
 use crate::database::Database;
 
+const RED: &'static str = "\x1b[1;31m";
+const RESET: &'static str = "\x1b[1;0m";
+
 #[derive(StructOpt)]
 struct Opt {
     #[structopt(subcommand)]
@@ -113,8 +116,13 @@ async fn submit(opt: &Opt) -> anyhow::Result<()> {
 
     let remote = git::parse_remote(&repo_root, &database.get_remote()?).await?;
     for branch_in_stack in branches_in_stack {
-        git::push_branch(&repo_root, "origin", &branch_in_stack).await?;
         let base_branch = database.get_parent(&current_branch)?;
+        let Some(base_branch) = base_branch else {
+            eprintln!("{RED}Cannot find parent of `{branch_in_stack}`. Assuming it is primary branch and not pushing.{RESET}");
+            continue;
+        };
+
+        git::push_branch(&repo_root, "origin", &branch_in_stack).await?;
         println!("[{branch_in_stack}] -> {}", remote.new_pr_url(&base_branch, &branch_in_stack));
     }
 
