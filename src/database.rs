@@ -153,17 +153,6 @@ impl Database {
             .optional()?)
     }
 
-    pub fn get_parent(&self, branch: &str) -> anyhow::Result<Option<String>> {
-        Ok(self
-            .conn
-            .query_row(
-                "SELECT parent FROM branches WHERE name = ?",
-                (branch,),
-                |row| row.get(0),
-            )
-            .optional()?)
-    }
-
     pub fn create_branch(&mut self, current_branch: &str, new_branch: &str) -> anyhow::Result<()> {
         let transaction = self.conn.transaction()?;
         let current_branch_exists: bool = {

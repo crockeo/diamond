@@ -1,16 +1,61 @@
 use regex::Regex;
+use std::path::PathBuf;
+use std::process::Command;
 use std::{
     path::Path,
     process::{ExitStatus, Stdio},
 };
-use tokio::process::Command;
 
-pub async fn get_current_branch(git_root: &Path) -> anyhow::Result<String> {
+pub struct BranchGuard {
+    git_root: PathBuf,
+    original_branch: Option<String>,
+}
+
+impl BranchGuard {
+    pub fn release(mut self) -> anyhow::Result<()> {
+        self.release_impl()
+    }
+
+    fn release_impl(&mut self) -> anyhow::Result<()> {
+        let Some(original_branch) = self.original_branch.take() else {
+            anyhow::bail!("Somehow something has already taken ");
+        };
+        checkout(&self.git_root, &original_branch)?;
+        Ok(())
+    }
+}
+
+impl Drop for BranchGuard {
+    fn drop(&mut self) {
+        self.release_impl()
+            .expect("Failed to move back to original Git branch during BranchGuard drop.");
+    }
+}
+
+pub fn using_branch(git_root: &Path, branch: &str) -> anyhow::Result<BranchGuard> {
+    let _original_branch = get_current_branch(git_root)?;
+    let guard = BranchGuard {
+        git_root: git_root.to_owned(),
+        original_branch: Some(branch.to_owned()),
+    };
+    checkout(git_root, branch)?;
+    Ok(guard)
+}
+
+fn checkout(git_root: &Path, branch: &str) -> anyhow::Result<()> {
+    let status = Command::new("git")
+        .args(["checkout", branch])
+        .current_dir(git_root)
+        .status()?;
+    check_status(status)?;
+    Ok(())
+}
+
+pub fn get_current_branch(git_root: &Path) -> anyhow::Result<String> {
     let output = Command::new("git")
         .args(["rev-parse", "--symbolic-full-name", "HEAD"])
         .current_dir(git_root)
-        .output()
-        .await?;
+        .output()?;
     check_status(output.status)?;
     let stdout = String::from_utf8(output.stdout)?;
     let Some(branch_name) = stdout.trim().strip_prefix("refs/heads/") else {
@@ -19,17 +64,16 @@ pub async fn get_current_branch(git_root: &Path) -> anyhow::Result<String> {
     Ok(branch_name.to_owned())
 }
 
-pub async fn create_branch(git_root: &Path, branch_name: &str) -> anyhow::Result<()> {
+pub fn create_branch(git_root: &Path, branch_name: &str) -> anyhow::Result<()> {
     let status = Command::new("git")
         .args(["checkout", "-b", branch_name])
         .current_dir(git_root)
-        .status()
-        .await?;
+        .status()?;
     check_status(status)?;
     Ok(())
 }
 
-pub async fn push_branch(
+pub fn push_branch(
     git_root: impl AsRef<Path>,
     remote: impl AsRef<str>,
     branch_name: impl AsRef<str>,
@@ -43,8 +87,7 @@ pub async fn push_branch(
         .current_dir(git_root)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .await?;
+        .status()?;
     check_status(status)?;
     Ok(())
 }
@@ -61,16 +104,11 @@ fn check_status(status: ExitStatus) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn is_ancestor_of(
-    git_root: &Path,
-    parent_branch: &str,
-    branch: &str,
-) -> anyhow::Result<bool> {
+pub fn is_ancestor_of(git_root: &Path, parent_branch: &str, branch: &str) -> anyhow::Result<bool> {
     let status = Command::new("git")
         .args(["merge-base", "--is-ancestor", parent_branch, branch])
         .current_dir(git_root)
-        .status()
-        .await?;
+        .status()?;
     Ok(status.success())
 }
 
@@ -103,33 +141,32 @@ impl Remote {
     }
 }
 
-pub async fn parse_remote(git_root: &Path, remote: &str) -> anyhow::Result<Remote> {
+pub fn parse_remote(git_root: &Path, remote: &str) -> anyhow::Result<Remote> {
     let output = Command::new("git")
         .args(["remote", "get-url", remote])
         .current_dir(git_root)
-        .output()
-        .await?;
+        .output()?;
 
     let url = String::from_utf8(output.stdout)?;
     Remote::parse(&url)
 }
 
-pub async fn rebase(git_root: &Path, parent_branch: &str, branch: &str) -> anyhow::Result<()> {
+pub fn rebase(git_root: &Path, parent_branch: &str, branch: &str) -> anyhow::Result<()> {
     let status = Command::new("git")
         .args(["rebase", parent_branch, branch])
         .current_dir(git_root)
-        .status()
-        .await?;
+        .status()?;
     check_status(status)?;
     Ok(())
 }
 
-pub async fn pull(git_root: &Path, origin: &str, branch: &str) -> anyhow::Result<()> {
+pub fn pull(git_root: &Path, origin: &str, branch: &str) -> anyhow::Result<()> {
+    let guard = using_branch(git_root, branch)?;
     let status = Command::new("git")
         .args(["pull", "--ff-only", "--no-edit", origin, branch])
         .current_dir(git_root)
-        .status()
-        .await?;
+        .status()?;
+    guard.release()?;
     check_status(status)?;
     Ok(())
 }

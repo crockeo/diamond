@@ -10,7 +10,6 @@ anyhow = { version = "1.0.82", features = ["backtrace"] }
 regex = "1.10.4"
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 structopt = { version = "0.3.26", features = ["color"] }
-tokio = { version = "1.37.0", features = ["full"] }
 
 [dev-dependencies]
 tempdir = "0.3.7"
