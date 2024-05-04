@@ -114,6 +114,16 @@ pub async fn parse_remote(git_root: &Path, remote: &str) -> anyhow::Result<Remot
     Remote::parse(&url)
 }
 
+pub async fn rebase(git_root: &Path, parent_branch: &str, branch: &str) -> anyhow::Result<()> {
+    let status = Command::new("git")
+        .args(["rebase", parent_branch, branch])
+        .current_dir(git_root)
+        .status()
+        .await?;
+    check_status(status)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,7 +132,7 @@ mod tests {
     fn test_parse_remote_url_ssh() -> anyhow::Result<()> {
         let remote = Remote::parse("git@github.com:crockeo/diamond")?;
         assert_eq!(
-            repo,
+            remote,
             Remote {
                 organization: "crockeo".to_owned(),
                 repo: "diamond".to_owned(),
@@ -135,7 +145,7 @@ mod tests {
     fn test_parse_remote_url_https() -> anyhow::Result<()> {
         let remote = Remote::parse("https://github.com/crockeo/diamond")?;
         assert_eq!(
-            repo,
+            remote,
             Remote {
                 organization: "crockeo".to_owned(),
                 repo: "diamond".to_owned(),

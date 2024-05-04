@@ -102,7 +102,8 @@ impl Database {
             .conn
             .query_row("SELECT remote FROM repo_info WHERE id = 1", (), |row| {
                 row.get(0)
-            }).optional()?)
+            })
+            .optional()?)
     }
 
     pub fn set_root_branch(&mut self, root_branch: &str) -> anyhow::Result<()> {
@@ -141,12 +142,15 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_root_branch(&self) -> anyhow::Result<String> {
-        Ok(self.conn.query_row(
-            "SELECT name FROM branches WHERE parent IS NULL",
-            (),
-            |row| row.get(0),
-        )?)
+    pub fn get_root_branch(&self) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT name FROM branches WHERE parent IS NULL",
+                (),
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     pub fn get_parent(&self, branch: &str) -> anyhow::Result<Option<String>> {
@@ -191,29 +195,91 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_branches_in_stack(&mut self, current_branch: &str) -> anyhow::Result<Vec<String>> {
-        let transaction = self.conn.transaction()?;
-        let mut stmt = transaction.prepare(
+    /// Returns all of the branches in the stack belonging to `current_branch`.
+    /// Always the branches in "ascending order," such that branches closer to the root branch
+    /// are earlier in the list.
+    pub fn get_branches_in_stack(&mut self, current_branch: &str) -> anyhow::Result<Vec<Branch>> {
+        let mut stmt = self.conn.prepare(
             "
             WITH RECURSIVE
-              stack_branches(name, parent) AS (
-                VALUES(?, ?)
+              stack_branches(name, parent, level) AS (
+                VALUES(?, ?, 0)
+
                 UNION
-                SELECT branches.name, branches.parent
+
+                SELECT branches.name, branches.parent, stack_branches.level + 1
                 FROM branches, stack_branches
                 WHERE branches.parent = stack_branches.name
-                   OR branches.name = stack_branches.parent
+
+                UNION
+
+                SELECT branches.name, branches.parent, stack_branches.level - 1
+                FROM branches, stack_branches
+                WHERE stack_branches.parent = branches.name
+                  AND branches.parent IS NOT NULL
               )
-            SELECT DISTINCT name
+            SELECT DISTINCT name, parent
             FROM stack_branches
-            WHERE parent IS NOT NULL
+            WHERE name <> parent
+            ORDER BY level ASC
             ",
         )?;
-        let mut branches: Vec<String> = Vec::new();
-        for row in stmt.query_map((current_branch, current_branch), |row| row.get(0))? {
-            let row = row?;
-            branches.push(row);
-        }
+        let branches = stmt
+            .query_map((current_branch, current_branch), |row| {
+                Ok(Branch {
+                    name: row.get(0)?,
+                    parent: row.get(1)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<Branch>>>()?;
         Ok(branches)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Branch {
+    pub name: String,
+    pub parent: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempdir::TempDir;
+
+    #[test]
+    fn test_get_branches_in_stack() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new("diamond-unit-tests")?;
+        let mut database = Database::new(temp_dir.path().join("database.sqlite3"))?;
+
+        database.set_root_branch("main")?;
+        database.create_branch("main", "ch/unrelated-branch")?;
+        database.create_branch("main", "ch/branch-1")?;
+        database.create_branch("ch/branch-1", "ch/branch-2")?;
+        database.create_branch("ch/branch-2", "ch/branch-3")?;
+
+        let expected_stack = vec![
+            Branch {
+                name: "ch/branch-1".to_owned(),
+                parent: "main".to_owned(),
+            },
+            Branch {
+                name: "ch/branch-2".to_owned(),
+                parent: "ch/branch-1".to_owned(),
+            },
+            Branch {
+                name: "ch/branch-3".to_owned(),
+                parent: "ch/branch-2".to_owned(),
+            },
+        ];
+
+        for branch in ["ch/branch-1", "ch/branch-2", "ch/branch-3"] {
+            assert_eq!(
+                database.get_branches_in_stack(branch)?,
+                expected_stack,
+            );
+        }
+
+        Ok(())
     }
 }
