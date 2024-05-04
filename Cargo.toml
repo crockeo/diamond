@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1.0.82", features = ["backtrace"] }
-octocrab = "0.38.0"
 regex = "1.10.4"
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 structopt = { version = "0.3.26", features = ["color"] }
