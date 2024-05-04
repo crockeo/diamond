@@ -12,6 +12,13 @@ pub struct BranchGuard {
 }
 
 impl BranchGuard {
+    pub fn new(git_root: PathBuf, branch: String) -> Self {
+        Self {
+            git_root,
+            original_branch: Some(branch),
+        }
+    }
+
     pub fn release(mut self) -> anyhow::Result<()> {
         self.release_impl()
     }
@@ -48,6 +55,8 @@ fn checkout(git_root: &Path, branch: &str) -> anyhow::Result<()> {
     let status = Command::new("git")
         .args(["checkout", branch])
         .current_dir(git_root)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()?;
     check_status(status)?;
     Ok(())

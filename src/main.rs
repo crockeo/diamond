@@ -1,6 +1,7 @@
 mod database;
 mod git;
 
+use git::BranchGuard;
 use std::path::Path;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -124,9 +125,10 @@ fn submit(_opt: &Opt) -> anyhow::Result<()> {
 
 fn sync(_opt: &Opt) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
-    let mut database = open_database(&repo_root)?;
     let current_branch = git::get_current_branch(&repo_root)?;
+    let _guard = git::BranchGuard::new(repo_root.clone(), current_branch.clone());
 
+    let mut database = open_database(&repo_root)?;
     let Some(remote) = database.get_remote()? else {
         anyhow::bail!("{RED}Cannot find origin. Is the repo initialized?{RESET}");
     };
@@ -147,9 +149,10 @@ fn sync(_opt: &Opt) -> anyhow::Result<()> {
 
 fn restack(_opt: &Opt) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
-    let mut database = open_database(&repo_root)?;
     let current_branch = git::get_current_branch(&repo_root)?;
+    let _guard = git::BranchGuard::new(repo_root.clone(), current_branch.clone());
 
+    let mut database = open_database(&repo_root)?;
     let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
     for branch in branches_in_stack {
         println!("Restacking `{}` onto `{}`...", branch.name, branch.parent);
