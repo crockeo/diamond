@@ -110,24 +110,21 @@ async fn submit(opt: &Opt) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
     let mut database = open_database(&repo_root)?;
     let current_branch = git::get_current_branch(&repo_root).await?;
-    let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
 
     let Some(remote_name) = database.get_remote()? else {
         eprintln!("{RED}Cannot find remote. Configure repo with `dmd init`.{RESET}");
         return Ok(());
     };
-
-
     let remote = git::parse_remote(&repo_root, &remote_name).await?;
-    for branch_in_stack in branches_in_stack {
-        let base_branch = database.get_parent(&current_branch)?;
-        let Some(base_branch) = base_branch else {
-            eprintln!("{RED}Cannot find parent of `{branch_in_stack}`. Is it tracked?{RESET}");
-            continue;
-        };
 
-        git::push_branch(&repo_root, "origin", &branch_in_stack).await?;
-        println!("[{branch_in_stack}] -> {}", remote.new_pr_url(&base_branch, &branch_in_stack));
+    let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
+    for branch in branches_in_stack {
+        git::push_branch(&repo_root, "origin", &branch.name).await?;
+        println!(
+            "[{}] -> {}",
+            &branch.name,
+            remote.new_pr_url(&branch.parent, &branch.name),
+        );
     }
 
     Ok(())
@@ -138,16 +135,31 @@ async fn sync(opt: &Opt) -> anyhow::Result<()> {
 }
 
 async fn restack(opt: &Opt) -> anyhow::Result<()> {
-    todo!()
+    let repo_root = git_repo_root(std::env::current_dir()?)?;
+    let mut database = open_database(&repo_root)?;
+    let current_branch = git::get_current_branch(&repo_root).await?;
+
+    let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
+    for branch in branches_in_stack {
+        println!("Restacking `{}` onto `{}`...", branch.name, branch.parent);
+        git::rebase(&repo_root, &branch.parent, &branch.name).await?;
+    }
+
+    Ok(())
 }
 
 async fn track(opt: &Opt, track_opt: &TrackOpt) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
-    let current_branch = git::get_current_branch(&repo_root).await?;
     let mut database = Database::new(repo_root.join(".git").join("diamond.sqlite3"))?;
+    let current_branch = git::get_current_branch(&repo_root).await?;
+
+    let Some(root_branch) = database.get_root_branch()? else {
+        anyhow::bail!("{RED}Cannot find root branch. Configure repo with `dmd init`.{RESET}");
+    };
+
     let parent = match &track_opt.parent {
         Some(parent) => parent.clone(),
-        None => database.get_root_branch()?,
+        None => root_branch,
     };
     if !git::is_ancestor_of(&repo_root, &parent, &current_branch).await? {
         anyhow::bail!("Cannot track {current_branch} as branching off of {parent}, because {parent} is not its ancestor.");
