@@ -131,7 +131,25 @@ async fn submit(opt: &Opt) -> anyhow::Result<()> {
 }
 
 async fn sync(opt: &Opt) -> anyhow::Result<()> {
-    todo!()
+    let repo_root = git_repo_root(std::env::current_dir()?)?;
+    let mut database = open_database(&repo_root)?;
+    let current_branch = git::get_current_branch(&repo_root).await?;
+
+    let Some(remote) = database.get_remote()? else {
+        anyhow::bail!("{RED}Cannot find origin. Is the repo initialized?{RESET}");
+    };
+    let Some(root_branch) = database.get_root_branch()? else {
+        anyhow::bail!("{RED}Cannot find root branch. Configure repo with `dmd init`.{RESET}");
+    };
+    git::pull(&repo_root, &remote, &root_branch).await?;
+
+    let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
+    for branch in branches_in_stack {
+        println!("Restacking `{}` onto `{}`...", branch.name, branch.parent);
+        git::rebase(&repo_root, &branch.parent, &branch.name).await?;
+    }
+
+    Ok(())
 }
 
 async fn restack(opt: &Opt) -> anyhow::Result<()> {

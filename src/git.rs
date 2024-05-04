@@ -124,6 +124,16 @@ pub async fn rebase(git_root: &Path, parent_branch: &str, branch: &str) -> anyho
     Ok(())
 }
 
+pub async fn pull(git_root: &Path, origin: &str, branch: &str) -> anyhow::Result<()> {
+    let status = Command::new("git")
+        .args(["pull", "--ff-only", "--no-edit", origin, branch])
+        .current_dir(git_root)
+        .status()
+        .await?;
+    check_status(status)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
