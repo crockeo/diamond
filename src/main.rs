@@ -19,33 +19,49 @@ struct Opt {
 
 #[derive(StructOpt)]
 enum Mode {
+    /// Creates a new branch with the provided name based on the current branch.
+    #[structopt()]
+    Create(CreateOpt),
+
     /// Initializes a repository to be ready to use with diamond.
     /// Requires that you specify the root branch of that repo,
     /// which is usually `master` or `main`.
     #[structopt()]
     Init(InitOpt),
 
-    /// Creates a new branch with the provided name based on the current branch.
+    /// Removes a branch from diamond, and marks each of its children as now being children of the branch's parent.
     #[structopt()]
-    Create(CreateOpt),
+    Remove(RemoveOpt),
+
+    /// Restacks the branches on the current stack onto the most recent version of the priamry branch.
+    #[structopt()]
+    Restack,
+
+    /// Submits the contents of the current stack to the remote repo.
+    #[structopt()]
+    Submit,
 
     /// Fetches the most recent contents of the repo's primary branch
     /// and then restacks all of the tracked branches on top of the primary branch.
     #[structopt()]
     Sync,
 
-    /// Submits the contents of the current stack to the remote repo.
-    #[structopt()]
-    Submit,
-
-    /// Restacks the branches on the current stack onto the most recent version of the priamry branch.
-    #[structopt()]
-    Restack,
-
     /// Starts tracking the current branch inside of Diamond.
     /// If no `parent` is provided, assume that the current branch is based on `main`.
     #[structopt()]
     Track(TrackOpt),
+}
+
+#[derive(StructOpt)]
+struct CreateOpt {
+    #[structopt()]
+    branch: String,
+}
+
+#[derive(StructOpt)]
+struct RemoveOpt {
+    #[structopt()]
+    branch: String,
 }
 
 #[derive(StructOpt)]
@@ -55,12 +71,6 @@ struct InitOpt {
 
     #[structopt(long)]
     root_branch: String,
-}
-
-#[derive(StructOpt)]
-struct CreateOpt {
-    #[structopt()]
-    branch: String,
 }
 
 #[derive(StructOpt)]
@@ -78,6 +88,7 @@ fn main() -> anyhow::Result<()> {
     match &opt.command {
         Mode::Create(ref create_opt) => create(&mut tx, &create_opt),
         Mode::Init(ref init_opt) => init(&mut tx, &init_opt),
+        Mode::Remove(ref remove_opt) => remove(&mut tx, &remove_opt),
         Mode::Restack => restack(&mut tx),
         Mode::Submit => submit(&mut tx),
         Mode::Sync => sync(&mut tx),
@@ -99,6 +110,11 @@ fn create(tx: &mut Transaction, create_opt: &CreateOpt) -> anyhow::Result<()> {
 fn init(tx: &mut Transaction, init_opt: &InitOpt) -> anyhow::Result<()> {
     tx.set_remote(&init_opt.remote)?;
     tx.set_root_branch(&init_opt.root_branch)?;
+    Ok(())
+}
+
+fn remove(tx: &mut Transaction, remove_opt: &RemoveOpt) -> anyhow::Result<()> {
+    tx.remove_branch(&remove_opt.branch)?;
     Ok(())
 }
 

@@ -200,6 +200,38 @@ impl Transaction<'_> {
         Ok(())
     }
 
+    /// Modifies all children of a given branch to be rebase on the branch's parent,
+    /// and then removes the branch from the database.
+    pub fn remove_branch(&mut self, branch: &str) -> anyhow::Result<()> {
+        let parent: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT parent FROM branches WHERE name = ?",
+                (branch,),
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(parent) = parent else {
+            anyhow::bail!("Cannot remove branch `{branch}`, because it doesn't exist.");
+        };
+
+        self.conn.execute(
+            "
+            UPDATE branches
+            SET parent = ?
+            WHERE parent = ?
+            ",
+            (parent, branch),
+        )?;
+
+        self.conn.execute(
+            "DELETE FROM branches WHERE name = ?",
+            (branch,),
+        )?;
+
+        Ok(())
+    }
+
     /// Returns all of the branches in the stack belonging to `current_branch`.
     /// Always the branches in "ascending order," such that branches closer to the root branch
     /// are earlier in the list.
