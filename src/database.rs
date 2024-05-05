@@ -170,7 +170,7 @@ impl Database {
 
         transaction.execute(
             "
-            INSERT INTO BRANCHES (
+            INSERT OR REPLACE INTO BRANCHES (
                 name,
                 parent
             ) VALUES (
