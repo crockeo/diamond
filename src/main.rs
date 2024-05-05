@@ -118,7 +118,6 @@ fn restack(tx: &mut Transaction) -> anyhow::Result<()> {
 
 fn submit(tx: &mut Transaction) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
-    let mut database = open_database(&repo_root)?;
     let current_branch = git::get_current_branch(&repo_root)?;
 
     let Some(remote_name) = tx.get_remote()? else {
@@ -192,8 +191,4 @@ fn git_repo_root(cwd: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
         candidate_path = path.parent();
     }
     anyhow::bail!("Working directory is not in a Git repo: {cwd:?}");
-}
-
-fn open_database(repo_root: &Path) -> anyhow::Result<Database> {
-    Database::new(repo_root.join(".git").join("diamond.sqlite3"))
 }
