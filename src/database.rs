@@ -81,6 +81,23 @@ impl Database {
         Ok(())
     }
 
+    pub fn transaction(&mut self) -> anyhow::Result<Transaction> {
+        Ok(Transaction {
+            conn: self.conn.transaction()?,
+        })
+    }
+}
+
+pub struct Transaction<'conn> {
+    conn: rusqlite::Transaction<'conn>,
+}
+
+impl Transaction<'_> {
+    pub fn commit(self) -> anyhow::Result<()> {
+        self.conn.commit()?;
+        Ok(())
+    }
+
     pub fn set_remote(&mut self, remote: &str) -> anyhow::Result<()> {
         self.conn.execute(
             "
@@ -107,9 +124,10 @@ impl Database {
     }
 
     pub fn set_root_branch(&mut self, root_branch: &str) -> anyhow::Result<()> {
-        let transaction = self.conn.transaction()?;
         let existing_root_branch: Option<String> = {
-            let mut stmt = transaction.prepare("SELECT name FROM branches WHERE parent IS NULL")?;
+            let mut stmt = self
+                .conn
+                .prepare("SELECT name FROM branches WHERE parent IS NULL")?;
             let rows = stmt.query_map((), |row| row.get(0))?;
             let mut root_branches: Vec<String> = Vec::new();
             for row in rows {
@@ -124,7 +142,7 @@ impl Database {
             root_branches.pop()
         };
         if let Some(ref existing_root_branch) = existing_root_branch {
-            let num_children: usize = transaction.query_row(
+            let num_children: usize = self.conn.query_row(
                 "SELECT COUNT(*) FROM branches WHERE parent = ?",
                 (existing_root_branch,),
                 |row| row.get(0),
@@ -132,13 +150,13 @@ impl Database {
             if num_children > 0 {
                 anyhow::bail!("Cannot change root branch when there is an existing root branch with active children.");
             }
-            transaction.execute(
+            self.conn.execute(
                 "DELETE FROM BRANCHES WHERE name = ?",
                 (existing_root_branch,),
             )?;
         };
-        transaction.execute("INSERT INTO branches ( name ) VALUES ( ? )", (root_branch,))?;
-        transaction.commit()?;
+        self.conn
+            .execute("INSERT INTO branches ( name ) VALUES ( ? )", (root_branch,))?;
         Ok(())
     }
 
@@ -154,9 +172,8 @@ impl Database {
     }
 
     pub fn create_branch(&mut self, current_branch: &str, new_branch: &str) -> anyhow::Result<()> {
-        let transaction = self.conn.transaction()?;
         let current_branch_exists: bool = {
-            let count: usize = transaction.query_row(
+            let count: usize = self.conn.query_row(
                 "SELECT COUNT(*) FROM branches WHERE name = ?",
                 (current_branch,),
                 |row| row.get(0),
@@ -168,7 +185,7 @@ impl Database {
             "Cannot create branch on top of {current_branch}, which is not tracked."
         );
 
-        transaction.execute(
+        self.conn.execute(
             "
             INSERT OR REPLACE INTO BRANCHES (
                 name,
@@ -180,7 +197,6 @@ impl Database {
             ",
             (new_branch, current_branch),
         )?;
-        transaction.commit()?;
         Ok(())
     }
 
@@ -240,12 +256,13 @@ mod tests {
     fn test_get_branches_in_stack() -> anyhow::Result<()> {
         let temp_dir = TempDir::new("diamond-unit-tests")?;
         let mut database = Database::new(temp_dir.path().join("database.sqlite3"))?;
+        let mut tx = database.transaction()?;
 
-        database.set_root_branch("main")?;
-        database.create_branch("main", "ch/unrelated-branch")?;
-        database.create_branch("main", "ch/branch-1")?;
-        database.create_branch("ch/branch-1", "ch/branch-2")?;
-        database.create_branch("ch/branch-2", "ch/branch-3")?;
+        tx.set_root_branch("main")?;
+        tx.create_branch("main", "ch/unrelated-branch")?;
+        tx.create_branch("main", "ch/branch-1")?;
+        tx.create_branch("ch/branch-1", "ch/branch-2")?;
+        tx.create_branch("ch/branch-2", "ch/branch-3")?;
 
         let expected_stack = vec![
             Branch {
@@ -263,10 +280,7 @@ mod tests {
         ];
 
         for branch in ["ch/branch-1", "ch/branch-2", "ch/branch-3"] {
-            assert_eq!(
-                database.get_branches_in_stack(branch)?,
-                expected_stack,
-            );
+            assert_eq!(tx.get_branches_in_stack(branch)?, expected_stack,);
         }
 
         Ok(())

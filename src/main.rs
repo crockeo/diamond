@@ -1,7 +1,7 @@
 mod database;
 mod git;
 
-use git::BranchGuard;
+use database::Transaction;
 use std::path::Path;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -70,47 +70,64 @@ struct TrackOpt {
 }
 
 fn main() -> anyhow::Result<()> {
+    let repo_root = git_repo_root(std::env::current_dir()?)?;
+    let mut database = Database::new(repo_root.join(".git").join("diamond.sqlite3"))?;
+    let mut tx = database.transaction()?;
+
     let opt = Opt::from_args();
     match &opt.command {
-        Mode::Init(ref init_opt) => init(&opt, &init_opt),
-        Mode::Create(ref create_opt) => create(&opt, &create_opt),
-        Mode::Sync => sync(&opt),
-        Mode::Submit => submit(&opt),
-        Mode::Restack => restack(&opt),
-        Mode::Track(ref track_opt) => track(&opt, track_opt),
+        Mode::Create(ref create_opt) => create(&mut tx, &create_opt),
+        Mode::Init(ref init_opt) => init(&mut tx, &init_opt),
+        Mode::Restack => restack(&mut tx),
+        Mode::Submit => submit(&mut tx),
+        Mode::Sync => sync(&mut tx),
+        Mode::Track(ref track_opt) => track(&mut tx, track_opt),
     }?;
+
+    tx.commit()?;
     Ok(())
 }
 
-fn init(_opt: &Opt, init_opt: &InitOpt) -> anyhow::Result<()> {
+fn create(tx: &mut Transaction, create_opt: &CreateOpt) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
-    let mut database = open_database(&repo_root)?;
-    database.set_remote(&init_opt.remote)?;
-    database.set_root_branch(&init_opt.root_branch)?;
-    Ok(())
-}
-
-fn create(_opt: &Opt, create_opt: &CreateOpt) -> anyhow::Result<()> {
-    let repo_root = git_repo_root(std::env::current_dir()?)?;
-    let mut database = open_database(&repo_root)?;
     let current_branch = git::get_current_branch(&repo_root)?;
     git::create_branch(&repo_root, &create_opt.branch)?;
-    database.create_branch(&current_branch, &create_opt.branch)?;
+    tx.create_branch(&current_branch, &create_opt.branch)?;
     Ok(())
 }
 
-fn submit(_opt: &Opt) -> anyhow::Result<()> {
+fn init(tx: &mut Transaction, init_opt: &InitOpt) -> anyhow::Result<()> {
+    tx.set_remote(&init_opt.remote)?;
+    tx.set_root_branch(&init_opt.root_branch)?;
+    Ok(())
+}
+
+fn restack(tx: &mut Transaction) -> anyhow::Result<()> {
+    let repo_root = git_repo_root(std::env::current_dir()?)?;
+    let current_branch = git::get_current_branch(&repo_root)?;
+    let _guard = git::BranchGuard::new(repo_root.clone(), current_branch.clone());
+
+    let branches_in_stack = tx.get_branches_in_stack(&current_branch)?;
+    for branch in branches_in_stack {
+        println!("Restacking `{}` onto `{}`...", branch.name, branch.parent);
+        git::rebase(&repo_root, &branch.parent, &branch.name)?;
+    }
+
+    Ok(())
+}
+
+fn submit(tx: &mut Transaction) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
     let mut database = open_database(&repo_root)?;
     let current_branch = git::get_current_branch(&repo_root)?;
 
-    let Some(remote_name) = database.get_remote()? else {
+    let Some(remote_name) = tx.get_remote()? else {
         eprintln!("{RED}Cannot find remote. Configure repo with `dmd init`.{RESET}");
         return Ok(());
     };
     let remote = git::parse_remote(&repo_root, &remote_name)?;
 
-    let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
+    let branches_in_stack = tx.get_branches_in_stack(&current_branch)?;
     for branch in branches_in_stack {
         git::push_branch(&repo_root, "origin", &branch.name)?;
         println!(
@@ -123,21 +140,20 @@ fn submit(_opt: &Opt) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn sync(_opt: &Opt) -> anyhow::Result<()> {
+fn sync(tx: &mut Transaction) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
     let current_branch = git::get_current_branch(&repo_root)?;
     let _guard = git::BranchGuard::new(repo_root.clone(), current_branch.clone());
 
-    let mut database = open_database(&repo_root)?;
-    let Some(remote) = database.get_remote()? else {
+    let Some(remote) = tx.get_remote()? else {
         anyhow::bail!("{RED}Cannot find origin. Is the repo initialized?{RESET}");
     };
-    let Some(root_branch) = database.get_root_branch()? else {
+    let Some(root_branch) = tx.get_root_branch()? else {
         anyhow::bail!("{RED}Cannot find root branch. Configure repo with `dmd init`.{RESET}");
     };
     git::pull(&repo_root, &remote, &root_branch)?;
 
-    let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
+    let branches_in_stack = tx.get_branches_in_stack(&current_branch)?;
     for branch in branches_in_stack {
         println!("Restacking `{}` onto `{}`...", branch.name, branch.parent);
         git::pull(&repo_root, &remote, &branch.name)?;
@@ -147,27 +163,11 @@ fn sync(_opt: &Opt) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn restack(_opt: &Opt) -> anyhow::Result<()> {
+fn track(tx: &mut Transaction, track_opt: &TrackOpt) -> anyhow::Result<()> {
     let repo_root = git_repo_root(std::env::current_dir()?)?;
     let current_branch = git::get_current_branch(&repo_root)?;
-    let _guard = git::BranchGuard::new(repo_root.clone(), current_branch.clone());
 
-    let mut database = open_database(&repo_root)?;
-    let branches_in_stack = database.get_branches_in_stack(&current_branch)?;
-    for branch in branches_in_stack {
-        println!("Restacking `{}` onto `{}`...", branch.name, branch.parent);
-        git::rebase(&repo_root, &branch.parent, &branch.name)?;
-    }
-
-    Ok(())
-}
-
-fn track(_opt: &Opt, track_opt: &TrackOpt) -> anyhow::Result<()> {
-    let repo_root = git_repo_root(std::env::current_dir()?)?;
-    let mut database = Database::new(repo_root.join(".git").join("diamond.sqlite3"))?;
-    let current_branch = git::get_current_branch(&repo_root)?;
-
-    let Some(root_branch) = database.get_root_branch()? else {
+    let Some(root_branch) = tx.get_root_branch()? else {
         anyhow::bail!("{RED}Cannot find root branch. Configure repo with `dmd init`.{RESET}");
     };
 
@@ -178,7 +178,7 @@ fn track(_opt: &Opt, track_opt: &TrackOpt) -> anyhow::Result<()> {
     if !git::is_ancestor_of(&repo_root, &parent, &current_branch)? {
         anyhow::bail!("Cannot track {current_branch} as branching off of {parent}, because {parent} is not its ancestor.");
     }
-    database.create_branch(&parent, &current_branch)?;
+    tx.create_branch(&parent, &current_branch)?;
     Ok(())
 }
 
